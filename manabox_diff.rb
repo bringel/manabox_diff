@@ -12,40 +12,33 @@ parser  = OptionParser.new
   parser.on('-r', '--[no-]rename', 'Rename the new file with the timestamp')
 parser.parse!(into: options)
 
-files_given = options.key?(:new_file)
-file_directory = if files_given
-                   File.dirname(File.expand_path(options[:new_file]))
-                 else
-                   File.dirname(File.expand_path(ARGV[0]))
-                 end
-new_file = if files_given
-             File.open(File.expand_path(options[:new_file], file_directory))
-           else
-             options[:new_file] = ARGV[0]
-             File.open(File.expand_path(ARGV[0], file_directory))
-           end
+if options.key?(:new_file)
+  file_directory = File.dirname(options[:new_file])
+  options[:new_file] = File.basename(options[:new_file])
+  options[:old_file] = File.basename(options[:old_file])
+else
+  file_directory = File.dirname(ARGV[0])
+  options[:new_file] = File.basename(ARGV[0])
 
-old_file = if files_given
-             File.open(File.expand_path(options[:old_file], file_directory))
-           else
-             file_name = Dir.children(file_directory).filter do |fname|
-               fname != options[:new_file] && File.extname(fname) == '.csv' && !fname.include?("diff")
-             end.max_by do |fname|
-               File.open(File.expand_path(fname, file_directory)).mtime
-             end
-             options[:old_file] = file_name
-             File.open(File.expand_path(file_name, file_directory))
-           end
+  options[:old_file] = Dir.children(file_directory).filter do |fname|
+    fname != options[:new_file] && File.extname(fname) == '.csv' && !fname.include?("diff")
+  end.max_by do |fname|
+    File.open(File.expand_path(fname, file_directory)).mtime
+  end
+end
+
+new_file = File.open(File.join(file_directory, options[:new_file]))
+old_file = File.open(File.join(file_directory, options[:old_file]))
 
 if options[:rename]
-  updated_new_name = "ManaBox_Collection_#{new_file.mtime.strftime("%FT%R%z")}.csv"
+  updated_new_name = "ManaBox_Collection_#{new_file.mtime.iso8601}.csv"
   unless updated_new_name == options[:new_file]
     FileUtils.mv(new_file.path, "#{file_directory}/#{updated_new_name}")
     options[:new_file] = updated_new_name
     new_file = File.open(File.expand_path(updated_new_name, file_directory))
   end
 
-  updated_old_name = "ManaBox_Collection_#{old_file.mtime.strftime("%FT%R%z")}.csv"
+  updated_old_name = "ManaBox_Collection_#{old_file.mtime.iso8601}.csv"
   unless updated_old_name == options[:old_file]
     FileUtils.mv(old_file.path, "#{file_directory}/#{updated_old_name}")
     options[:old_file] = updated_old_name
@@ -53,12 +46,12 @@ if options[:rename]
   end
 end
 
+def card_key(card)
+  card.values_at("Set code", "Collector number", "Foil").join("")
+end
+
 sort_by_set_and_number = Proc.new do |a, b|
-  if a['Set code'] == b['Set code']``
-    a['Collector number'] <=> b['Collector number']
-  else
-    a['Set code'] <=> b['Set code']
-  end
+  card_key(a) <=> card_key(b)
 end
 
 added = []
@@ -84,8 +77,8 @@ current_new = advance(new_collection_enumerator)
 current_old = advance(old_collection_enumerator)
 
 while current_new != EOF && current_old != EOF
-  new_key = current_new.values_at("Set code", "Collector number").join("")
-  old_key = current_old.values_at("Set code", "Collector number").join("")
+  new_key = card_key(current_new)
+  old_key = card_key(current_old)
 
   if old_key == new_key
     if current_new["Quantity"] != current_old["Quantity"]
